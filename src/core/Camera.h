@@ -49,6 +49,7 @@ public:
 
 	void ProcessKeyboard(Cam::Camera_Movement direction, double deltaTime);
 	void ProcessMouseMovement(double xoffset, double yoffset, double deltaTime, bool constrainPitch = true);
+	void ProcessMousePan(double xoffset, double yoffset, double deltaTime);
 	void ProcessMouseScroll(double yoffset);
 	void ResetPosition();
 
@@ -56,6 +57,7 @@ public:
 	inline float GetMouseSensitivity() const { return m_MouseSensitivity; }
 	inline float GetZoom() const { return m_Zoom; }
 	inline glm::vec3 GetPosition() const { return m_Position; }
+	inline glm::vec3 GetFront() const { return m_Front; }
 
 	void SetUniforms(Shader& shader, glm::mat4& transform, float aspectRatio, float nearPlane, float farPlane);
 	void SetUniformViewPos(Shader& shader);

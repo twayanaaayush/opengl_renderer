@@ -51,27 +51,157 @@ std::shared_ptr<Spring> Softbody::MakeSpring(std::shared_ptr<Particle> endOne, s
 	return std::make_shared<Spring>(endOne, endTwo);
 }
 
-void Softbody::Update(bool simulate, float rotX, float rotY, const SimulationParams& params)
+// Compute all 4 volume methods and select the active one based on params
+void Softbody::ComputeVolumes(const SimulationParams& params)
 {
-	GameObject::Update(simulate, rotX, rotY);
+	CalculateBoundingBox();
+	m_VolumeAABB = PhysicsEngine::CalculateAABBVolume(m_BoundingBox[0], m_BoundingBox[1]);
+	m_VolumeSphere = PhysicsEngine::CalculateBoundingSphereVolume(m_BoundingBox[0], m_BoundingBox[1]);
+	m_VolumeEllipsoid = PhysicsEngine::CalculateBoundingEllipsoidVolume(m_BoundingBox[0], m_BoundingBox[1]);
+	m_VolumeExact = PhysicsEngine::CalculateExactVolume(m_Mesh->GetIndices(), m_Mesh->GetVertices());
 
-	if (simulate)
+	switch (params.volumeMethod)
 	{
-		AddGravityForce(params.gravityStrength);
-		AddSpringForce(params.springConstant, params.dampingConstant);
-		CalculateVolume();
-		CalculatePressureValue(params.moles);
-		CalculatePressureForce();
-		Integrate(params.integrationStep);
-
-		// Update mesh vertices from particle positions
-		std::vector<Vertex> vertices;
-		for (auto& p : m_Particles)
-			vertices.push_back({ p->GetPosition(), glm::vec3(0.0f), glm::vec2(0.0f) });
-
-		m_Mesh->SetVertices(vertices);
-		CalculateBoundingBox();
+	case VolumeMethod::AABB:              m_Volume = m_VolumeAABB;      break;
+	case VolumeMethod::BoundingSphere:    m_Volume = m_VolumeSphere;    break;
+	case VolumeMethod::BoundingEllipsoid: m_Volume = m_VolumeEllipsoid; break;
+	case VolumeMethod::DivergenceTheorem: m_Volume = m_VolumeExact;     break;
 	}
+}
+
+// Helper: accumulate all forces (gravity + spring/damping + pressure)
+void Softbody::AccumulateForces(const SimulationParams& params)
+{
+	PhysicsEngine::ApplyGravity(m_Particles, params.gravityStrength);
+	PhysicsEngine::ApplyExternalForce(m_Particles, params.externalForce);
+	PhysicsEngine::ApplySpringDampingForces(m_Springs,
+		params.springConstant, params.dampingConstant);
+
+	ComputeVolumes(params);
+
+	m_PressureValue = PhysicsEngine::CalculatePressure(m_Volume, params.moles);
+	PhysicsEngine::ApplyPressureForce(m_Particles, m_Mesh->GetIndices(),
+		m_Mesh->GetVertices(), m_PressureValue);
+}
+
+// Helper: sync mesh vertices from particle positions
+void Softbody::UpdateMeshFromParticles()
+{
+	std::vector<Vertex> vertices;
+	vertices.reserve(m_Particles.size());
+	for (auto& p : m_Particles)
+		vertices.push_back({ p->GetPosition(), glm::vec3(0.0f), glm::vec2(0.0f) });
+	m_Mesh->SetVertices(vertices);
+	CalculateBoundingBox();
+}
+
+// Paper Section 3.3: Full simulation algorithm
+void Softbody::Update(bool simulate, const SimulationParams& params,
+					   const ColliderBox& collider)
+{
+	GameObject::Update(simulate, params.objectPosition);
+	SetParticleMass(params.particleMass);
+
+	if (!simulate) return;
+
+	// Local-space collider (subtract object translation)
+	ColliderBox localCollider = collider;
+	localCollider.min -= params.objectPosition;
+	localCollider.max -= params.objectPosition;
+
+	float dt = params.integrationStep;
+
+	switch (params.integrationMethod)
+	{
+	case IntegrationMethod::ForwardEuler:
+	{
+		PhysicsEngine::ClearForces(m_Particles);
+		AccumulateForces(params);
+		PhysicsEngine::Integrate(m_Particles, dt);
+		PhysicsEngine::ResolveCollisions(m_Particles, localCollider);
+		break;
+	}
+
+	case IntegrationMethod::Midpoint:
+	{
+		// Save original state
+		size_t n = m_Particles.size();
+		std::vector<glm::vec3> origPos(n), origVel(n);
+		for (size_t i = 0; i < n; i++)
+		{
+			origPos[i] = m_Particles[i]->GetPosition();
+			origVel[i] = m_Particles[i]->GetVelocity();
+		}
+
+		// Compute forces at current state
+		PhysicsEngine::ClearForces(m_Particles);
+		AccumulateForces(params);
+
+		// Half-step: move particles to midpoint
+		float halfDt = dt * 0.5f;
+		for (size_t i = 0; i < n; i++)
+		{
+			glm::vec3 a = m_Particles[i]->GetForceAccumulated() / m_Particles[i]->GetMass();
+			glm::vec3 vHalf = origVel[i] + a * halfDt;
+			glm::vec3 xHalf = origPos[i] + vHalf * halfDt;
+			m_Particles[i]->SetVelocity(vHalf);
+			m_Particles[i]->SetPosition(xHalf);
+		}
+
+		// Update mesh so pressure/volume uses half-step geometry
+		UpdateMeshFromParticles();
+
+		// Recompute forces at half-step state
+		PhysicsEngine::ClearForces(m_Particles);
+		AccumulateForces(params);
+
+		// Full step from original state using half-step forces
+		for (size_t i = 0; i < n; i++)
+		{
+			glm::vec3 aHalf = m_Particles[i]->GetForceAccumulated() / m_Particles[i]->GetMass();
+			glm::vec3 newVel = origVel[i] + aHalf * dt;
+			glm::vec3 newPos = origPos[i] + newVel * dt;
+			m_Particles[i]->SetVelocity(newVel);
+			m_Particles[i]->SetPosition(newPos);
+		}
+
+		PhysicsEngine::ResolveCollisions(m_Particles, localCollider);
+		break;
+	}
+
+	case IntegrationMethod::ImplicitEuler:
+	{
+		size_t n = m_Particles.size();
+
+		// 1) Collect explicit forces: gravity + external + pressure
+		PhysicsEngine::ClearForces(m_Particles);
+		PhysicsEngine::ApplyGravity(m_Particles, params.gravityStrength);
+		PhysicsEngine::ApplyExternalForce(m_Particles, params.externalForce);
+
+		ComputeVolumes(params);
+		m_PressureValue = PhysicsEngine::CalculatePressure(m_Volume, params.moles);
+		PhysicsEngine::ApplyPressureForce(m_Particles, m_Mesh->GetIndices(),
+			m_Mesh->GetVertices(), m_PressureValue);
+
+		std::vector<glm::vec3> explicitForces(n);
+		for (size_t i = 0; i < n; i++)
+			explicitForces[i] = m_Particles[i]->GetForceAccumulated();
+
+		// 2) Collect spring/damping forces only (for implicit solve)
+		PhysicsEngine::ClearForces(m_Particles);
+		PhysicsEngine::ApplySpringDampingForces(m_Springs,
+			params.springConstant, params.dampingConstant);
+
+		// 3) Implicit integrate: explicit kick for gravity/pressure,
+		//    implicit solve for stiff spring/damping forces
+		PhysicsEngine::IntegrateImplicit(m_Particles, m_Springs,
+			explicitForces, params.springConstant, params.dampingConstant, dt);
+		PhysicsEngine::ResolveCollisions(m_Particles, localCollider);
+		break;
+	}
+	}
+
+	UpdateMeshFromParticles();
 }
 
 void Softbody::Reset()
@@ -101,106 +231,8 @@ void Softbody::SetNoOfMoles(unsigned int n)
 	m_NoOfMoles = n;
 }
 
-void Softbody::AddGravityForce(float gravityStrength)
+void Softbody::SetParticleMass(float mass)
 {
 	for (auto& p : m_Particles)
-	{
-		float fy = p->GetMass() * gravityStrength;
-		p->AddForce(glm::vec3(0.0f, fy, 0.0f));
-	}
-}
-
-void Softbody::AddSpringForce(float springK, float dampingK)
-{
-	for (auto& spring : m_Springs)
-	{
-		auto particle1 = spring->GetEndOne();
-		auto particle2 = spring->GetEndTwo();
-
-		glm::vec3 p1p = particle1->GetPosition();
-		glm::vec3 p2p = particle2->GetPosition();
-
-		glm::vec3 diff = p1p - p2p;
-		float r12d = glm::length(diff);
-
-		if (r12d != 0)
-		{
-			glm::vec3 relVel = particle1->GetVelocity() - particle2->GetVelocity();
-
-			float f = (r12d - spring->GetRestLength()) * springK +
-				(glm::dot(relVel, diff) * dampingK) / r12d;
-
-			glm::vec3 forceVec = (diff / r12d) * f;
-
-			particle1->AddForce(-forceVec);
-			particle2->AddForce(forceVec);
-
-			spring->SetNormalVector(diff / r12d);
-		}
-	}
-}
-
-float Softbody::CalculateVolume()
-{
-	float dx = m_BoundingBox[1].x - m_BoundingBox[0].x;
-	float dy = m_BoundingBox[1].y - m_BoundingBox[0].y;
-	float dz = m_BoundingBox[1].z - m_BoundingBox[0].z;
-
-	float volume = dx * dy * dz;
-	m_Volume = volume;
-	return volume;
-}
-
-void Softbody::CalculatePressureForce()
-{
-	for (auto& face : m_Mesh->GetIndices())
-	{
-		glm::vec3 crossProduct = CalculateCrossProduct(face);
-		float magnitude = glm::length(crossProduct);
-
-		if (magnitude == 0.0f) continue;
-
-		glm::vec3 normalToSurface = crossProduct / magnitude;
-		float area = 0.5f * magnitude;
-
-		for (unsigned int i = 0; i < face.GetVertexCount(); ++i)
-		{
-			auto& particle = m_Particles[face.vertex[i]];
-			glm::vec3 pressureForce = m_PressureValue * area * normalToSurface;
-			particle->AddForce(pressureForce);
-		}
-	}
-}
-
-glm::vec3 Softbody::CalculateCrossProduct(const Triangle& face)
-{
-	const std::vector<Vertex>& vertices = m_Mesh->GetVertices();
-
-	glm::vec3 v1 = vertices[face.vertex[0]].Position;
-	glm::vec3 v2 = vertices[face.vertex[1]].Position;
-	glm::vec3 v3 = vertices[face.vertex[2]].Position;
-
-	return glm::cross((v2 - v1), (v3 - v1));
-}
-
-float Softbody::CalculatePressureValue(unsigned int moles)
-{
-	float pressureValue = (1.0f / m_Volume) * moles * R;
-	m_PressureValue = pressureValue;
-	return pressureValue;
-}
-
-void Softbody::Integrate(float stepSize)
-{
-	for (auto& particle : m_Particles)
-	{
-		glm::vec3 velocity = particle->GetVelocity();
-		glm::vec3 position = particle->GetPosition();
-
-		glm::vec3 acceleration = particle->GetForceAccumulated() / particle->GetMass();
-		velocity += acceleration * stepSize;
-		position += velocity * stepSize;
-		particle->SetVelocity(velocity);
-		particle->SetPosition(position);
-	}
+		p->SetMass(mass);
 }

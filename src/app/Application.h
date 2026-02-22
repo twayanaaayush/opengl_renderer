@@ -38,6 +38,7 @@ private:
 	std::unique_ptr<SimulationUI> m_SimUI;
 
 	SimulationParams m_SimParams;
+	SimulationMetrics m_SimMetrics;
 	bool m_Wireframe = true;
 	bool m_SimRunning = false;
 	bool m_StepOnce = false;
@@ -62,8 +63,13 @@ public:
 	void LoadModel(const std::string& path);
 	void RemoveModel(int index);
 
+	void CaptureSnapshot();
+
 	Camera& GetCamera() { return *m_Camera; }
 	double GetDeltaTime() const { return m_DeltaTime; }
+	void SetWindowSize(unsigned int w, unsigned int h) { m_WindowWidth = w; m_WindowHeight = h; }
+	SimulationParams& GetSimParams() { return m_SimParams; }
+	const std::vector<std::unique_ptr<Softbody>>& GetSoftbodies() const { return m_Softbodies; }
 	const std::vector<std::unique_ptr<Model>>& GetModels() const { return m_Models; }
 
 private:

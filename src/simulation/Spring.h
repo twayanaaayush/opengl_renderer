@@ -5,7 +5,7 @@
 #include <glm/glm.hpp>
 
 const float SPRING_CONSTANT = 200.0f;
-const float DAMPING_CONSTANT = 1.0;
+const float DAMPING_CONSTANT = 2.0f;
 
 class Spring
 {

@@ -34,11 +34,12 @@ void Transform::UpdateModelMatrix()
 
 	glm::mat4 model = glm::mat4(1.0f);
 
-	model = glm::scale(model, m_Scale);
+	// Order: Translate → Rotate → Scale (applied right-to-left)
 	model = glm::translate(model, m_Pos);
 	model = glm::rotate(model, glm::radians(m_RotateX), glm::vec3(1.0f, 0.0f, 0.0f));
 	model = glm::rotate(model, glm::radians(m_RotateY), glm::vec3(0.0f, 1.0f, 0.0f));
 	model = glm::rotate(model, glm::radians(m_RotateZ), glm::vec3(0.0f, 0.0f, 1.0f));
+	model = glm::scale(model, m_Scale);
 
 	m_ModelMatrix = model;
 }

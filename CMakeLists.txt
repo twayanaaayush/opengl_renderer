@@ -48,6 +48,7 @@ set(SOURCES
     src/simulation/Softbody.cpp
     src/simulation/Particle.cpp
     src/simulation/Spring.cpp
+    src/simulation/PhysicsEngine.cpp
 
     src/scene/Scene.cpp
 

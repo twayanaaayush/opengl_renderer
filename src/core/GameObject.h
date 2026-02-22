@@ -32,6 +32,6 @@ public:
 	inline Transform& GetTransform() { return m_Transform; }
 	inline float& GetSize() { return m_Size; }
 
-	void Update(bool BEGIN_SIMULATION, float g_rotX_angle, float g_rotY_angle);
+	void Update(bool BEGIN_SIMULATION, const glm::vec3& position = glm::vec3(0.0f));
 	void Draw();
 };

@@ -44,34 +44,31 @@ void GameObject::SetSize(float size)
 
 void GameObject::CalculateBoundingBox()
 {
-	float minX = 0.0f, minY = 0.0f, minZ = 0.0f;
-	float maxX = 0.0f, maxY = 0.0f, maxZ = 0.0f;
+	const auto& verts = m_Mesh->GetVertices();
+	if (verts.empty()) return;
 
-	for (auto it = (*m_Mesh).GetVertices().begin(); it != (*m_Mesh).GetVertices().end(); ++it)
+	glm::vec3 vMin = verts[0].Position;
+	glm::vec3 vMax = verts[0].Position;
+
+	for (size_t i = 1; i < verts.size(); ++i)
 	{
-		if ((*it).Position.x > maxX) maxX = (*it).Position.x;
-		if ((*it).Position.x < minX) minX = (*it).Position.x;
-		
-		if ((*it).Position.y > maxY) maxY = (*it).Position.y;
-		if ((*it).Position.y < minY) minY = (*it).Position.y;
-		
-		if ((*it).Position.z > maxZ) maxZ = (*it).Position.z;
-		if ((*it).Position.z < minZ) minZ = (*it).Position.z;
+		const glm::vec3& p = verts[i].Position;
+		vMin = glm::min(vMin, p);
+		vMax = glm::max(vMax, p);
 	}
-	m_BoundingBox[0] = glm::vec3(minX, minY, minZ);
-	m_BoundingBox[1] = glm::vec3(maxX, maxY, maxZ);
+
+	m_BoundingBox[0] = vMin;
+	m_BoundingBox[1] = vMax;
 }
 
 
-void GameObject::Update(bool BEGIN_SIMULATION, float g_rotX_angle, float g_rotY_angle)
+void GameObject::Update(bool BEGIN_SIMULATION, const glm::vec3& position)
 {
 	(*m_Mesh).UpdateBuffers();
 	CalculateBoundingBox();
 
 	m_Transform.SetScale(glm::vec3(m_Size));
-	m_Transform.SetTranslation(glm::vec3(0.0f, 1.0f, 0.0f));
-	m_Transform.Rotate_X(g_rotX_angle);
-	m_Transform.Rotate_Y(g_rotY_angle);
+	m_Transform.SetTranslation(position);
 }
 
 void GameObject::Draw()

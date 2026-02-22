@@ -3,12 +3,14 @@
 #include <string>
 
 struct SimulationParams;
+struct SimulationMetrics;
 class Application;
 
 class SimulationUI
 {
 public:
-	void Draw(SimulationParams& params, bool& simRunning, bool& wireframe,
+	void Draw(SimulationParams& params, SimulationMetrics& metrics,
+	          bool& simRunning, bool& wireframe,
 	          bool& stepOnce, bool& resetRequested, float fps,
 	          Application* app);
 

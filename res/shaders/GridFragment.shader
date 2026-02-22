@@ -33,14 +33,15 @@ vec4 makeGrid(vec3 fragPos3D, float scale)
 float computeDepth(vec3 pos)
 {
     vec4 clip_space_pos = fragProj * fragView * vec4(pos.xyz, 1.0);
-    return (clip_space_pos.z / clip_space_pos.w);
+    float ndc_depth = clip_space_pos.z / clip_space_pos.w;
+    return ndc_depth * 0.5 + 0.5; // NDC [-1,1] -> window depth [0,1]
 }
 
 float computeLinearDepth(vec3 pos)
 {
     vec4 clip_space_pos = fragProj * fragView * vec4(pos.xyz, 1.0);
-    float clip_space_depth = (clip_space_pos.z / clip_space_pos.w) * 2.0 - 1.0; // put back between -1 and 1
-    float linearDepth = (2.0 * v_near * v_far) / (v_far + v_near - clip_space_depth * (v_far - v_near)); // get linear value between 0.01 and 100
+    float clip_space_depth = clip_space_pos.z / clip_space_pos.w; // OpenGL NDC is already [-1, 1]
+    float linearDepth = (2.0 * v_near * v_far) / (v_far + v_near - clip_space_depth * (v_far - v_near));
     return linearDepth / v_far; // normalize
 }
 

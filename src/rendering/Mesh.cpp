@@ -3,7 +3,7 @@
 
 Mesh::Mesh()
 {
-	auto icosphereIndexedMesh = MakeIcosphere(1);
+	auto icosphereIndexedMesh = MakeIcosphere(2);
 	SetVertices(icosphereIndexedMesh.first);
 	SetIndices(icosphereIndexedMesh.second);
 

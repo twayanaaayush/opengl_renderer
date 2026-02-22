@@ -66,13 +66,17 @@ void Camera::ProcessMouseMovement(double xoffset, double yoffset, double deltaTi
 	UpdateCameraVectors();
 }
 
+void Camera::ProcessMousePan(double xoffset, double yoffset, double /*deltaTime*/)
+{
+	float panSpeed = 0.005f * m_MovementSpeed;
+	m_Position -= m_Right * static_cast<float>(xoffset) * panSpeed;
+	m_Position -= m_Up * static_cast<float>(yoffset) * panSpeed;
+}
+
 void Camera::ProcessMouseScroll(double yoffset)
 {
-	m_Zoom -= (float)yoffset;
-	if (m_Zoom < 1.0f)
-		m_Zoom = 1.0f;
-	if (m_Zoom > 45.0f)
-		m_Zoom = 45.0f;
+	float zoomSpeed = 0.5f;
+	m_Position += m_Front * static_cast<float>(yoffset) * zoomSpeed;
 }
 
 void Camera::UpdateCameraVectors()
